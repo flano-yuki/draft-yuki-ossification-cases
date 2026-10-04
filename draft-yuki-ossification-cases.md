@@ -2,7 +2,7 @@
 title: "Cases of Protocol Ossification on the Internet"
 abbrev: "Ossification Cases"
 category: info
-docname: draft-yuki-ossification-cases
+docname: draft-yuki-ossification-cases-latest
 submissiontype: independent
 consensus: false
 v: 3
