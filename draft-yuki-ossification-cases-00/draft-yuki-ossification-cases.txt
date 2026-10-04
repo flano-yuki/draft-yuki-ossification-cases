@@ -1,0 +1,871 @@
+
+
+
+
+Network Working Group                                 後藤ゆき (Y. Goto)
+Internet-Draft                                               independent
+Intended status: Informational                         29 September 2026
+Expires: 2 April 2027
+
+
+             Cases of Protocol Ossification on the Internet
+                  draft-yuki-ossification-cases-latest
+
+Abstract
+
+   This document catalogues cases of protocol ossification.  Protocol
+   ossification is a phenomenon in which a new protocol, version, or
+   extension cannot traverse an existing Internet path; such problems
+   have been discovered and reported during protocol standardization and
+   deployment.
+
+   This document summarizes the reported observations and sources for
+   those cases, together with case-specific responses.
+
+Discussion Venues
+
+   This note is to be removed before publishing as an RFC.
+
+   Source for this draft and an issue tracker can be found at
+   https://github.com/flano-yuki/draft-yuki-ossification-cases.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 2 April 2027.
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents (https://trustee.ietf.org/
+   license-info) in effect on the date of publication of this document.
+   Please review these documents carefully, as they describe your rights
+   and restrictions with respect to this document.
+
+Table of Contents
+
+   1.  Introduction
+   2.  Terminology
+   3.  Communication Failure Classifications
+   4.  Cases: Issues, Reported Observations, and Mitigations
+     4.1.  IP Layer
+       4.1.1.  Dropping IPv6 Extension Headers
+     4.2.  Transport Layer
+       4.2.1.  Reachability of New IP Transport Protocols
+       4.2.2.  TCP Fast Open and TCP Option Intolerance
+       4.2.3.  TCP Sequence Translation and SACK Inconsistency
+       4.2.4.  MPTCP and ECN
+       4.2.5.  UDP Options: Mismatch between UDP Length and IP Length
+       4.2.6.  Unsafe UDP Options and Endpoint Ossification
+     4.3.  TLS
+       4.3.1.  Version Intolerance
+       4.3.2.  ClientHello Extension Intolerance and TLS 1.3
+               Compatibility Mode
+       4.3.3.  Large PQC ClientHello Messages and TLS Inspection
+               Intolerance
+       4.3.4.  Encrypted Client Hello and Middleboxes Assuming
+               Plaintext SNI
+     4.4.  DNS
+       4.4.1.  No Response or FORMERR to EDNS(0) OPT Records
+       4.4.2.  Individual EDNS Option Intolerance and UDP
+               Fragmentation
+     4.5.  HTTP
+       4.5.1.  HTTP Fields and WAF Allowlists
+     4.6.  QUIC and HTTP/3
+       4.6.1.  Blocking UDP/443
+       4.6.2.  Middlebox Ossification on Google QUIC Public Flags
+       4.6.3.  IETF QUIC Versions and Visible Invariants
+     4.7.  NTP
+       4.7.1.  NTPv4 Extension Field Intolerance
+       4.7.2.  Why NTPv5 Negotiation Cannot Use Extension Fields
+   5.  Security Considerations
+   6.  IANA Considerations
+   7.  References
+     7.1.  Normative References
+     7.2.  Informative References
+   Acknowledgments
+   References
+   Author's Address
+
+1.  Introduction
+
+   Protocol specifications can contain extension points for future
+   versions, options, extension fields, and other additions.  Such
+   extension points normally define rules intended to preserve
+   interoperability in the presence of unknown parameters.
+
+   However, even when an extension point is permitted by the
+   specification, network devices or middleware on the path can make
+   assumptions about packet formats and values based on what they
+   already recognize.  A new value or structure can violate those
+   assumptions and disrupt communication.  This phenomenon--where
+   deploying an extension or a new version of an existing protocol over
+   the Internet is impeded--is called _protocol ossification_.
+
+   Protocol ossification has been observed in a range of protocols,
+   including TCP, TLS 1.3, and QUIC.  This document summarizes such
+   cases and their mitigations.  Each mitigation distinguishes specified
+   measures, implemented measures, and observed deployment actions
+   recorded by a source, as applicable.
+
+2.  Terminology
+
+   Endpoint:  A host, application, or service that initiates or
+      terminates communication.
+
+   Middlebox:  A device or function between endpoints that does more
+      than forward packets, including state tracking, inspection,
+      transformation, or policy enforcement.  NATs, firewalls, proxies,
+      and load balancers are examples.
+
+   Ossification:  Loss of interoperability for a valid extension when an
+      endpoint or an on-path implementation fails to handle an unknown
+      value or new structure as required by the specification.  It might
+      reject, drop, rewrite, or misinterpret a version, code point,
+      option, extension field, or header field reserved or defined for
+      future use.
+
+   Intentional blocking:  A deliberate decision not to permit an unknown
+      feature because of a security policy, regulation, or operational
+      requirement.  It can produce the same connection failure as
+      ossification, but its cause is different.  This document
+      distinguishes the two.
+
+   GREASE:  A technique that sends reserved values with no semantic
+      meaning during normal operation, exposing implementations that
+      cannot ignore unknown values and preserving extensibility.
+
+3.  Communication Failure Classifications
+
+   Communication failures caused by protocol ossification can take
+   different forms.  This document assigns a *communication
+   manifestation* to each case.
+
+   Initial reachability failure:  The first packet, request, or response
+      does not pass, so that a connection or its first transaction
+      cannot start.
+
+   Negotiation failure:  A peer or path does not respond to, rejects, or
+      incorrectly responds to a proposed version, capability, option, or
+      extension.
+
+   In-flight dropping:  Packets, including those after initial exchange,
+      are dropped on the path.  A case identifies whether this is one-
+      way or two-way when known.
+
+   Field or option removal/rewrite:  Communication might continue, but a
+      middlebox removes, adds, or changes a header field, option, or
+      payload.
+
+   Semantic or state failure:  Packets arrive, but rewriting, incomplete
+      interpretation, or endpoint state disagreement breaks a function
+      or subsequent communication.
+
+   Silent fallback or feature degradation:  Basic communication
+      continues, but the new capability is not used and an older
+      mechanism is used instead.
+
+   Failure of broad deployment:  In addition to individual failures, the
+      protocol or feature cannot safely be assumed available on the
+      general Internet.
+
+   Intentional policy blocking:  An operator explicitly does not permit
+      a packet or feature under a security policy or similar policy.
+
+4.  Cases: Issues, Reported Observations, and Mitigations
+
+   For each case, this document identifies the reported observation, its
+   sources, and the associated response.
+
+4.1.  IP Layer
+
+4.1.1.  Dropping IPv6 Extension Headers
+
+   *Issue:* Firewalls and other middleboxes drop packets containing IPv6
+   Extension Headers (EH), including standard Fragment Headers.
+   Variable location of the Layer 4 header, arbitrary EH chains, and
+   fragment reassembly are common causes.
+
+   *Communication manifestation:* *Initial reachability failure*, *in-
+   flight dropping* (one-way or two-way), and sometimes *intentional
+   policy blocking*.
+
+   *Report category:* *Measurement or operational observation.*
+
+   *Reported observations and sources:* [RFC7872] measured dropping of
+   EH-containing packets on the Internet.  [RFC7045] records widely
+   deployed firewalls that did not recognize standardized EHs or handle
+   Fragment Headers.  [RFC9098] also summarizes operational problems and
+   reports of intentional dropping.
+
+4.2.  Transport Layer
+
+4.2.1.  Reachability of New IP Transport Protocols
+
+   *Issue:* NATs and stateful firewalls often implement and permit flow
+   state only for TCP and UDP.  An endpoint cannot assume that a new IP
+   transport protocol, such as SCTP or DCCP, will traverse the general
+   Internet.
+
+   *Communication manifestation:* *Initial reachability failure*,
+   *failure of broad deployment*, and sometimes *intentional policy
+   blocking*.
+
+   *Report category:* *Measurement or operational observation.*
+
+   *Reported observations and sources:* Edeline et al.  [Edeline] report
+   RIPE Atlas and comparison traffic measurements showing that
+   middleboxes impede new transports and extensions to existing
+   transports.  WebRTC data channels specify SCTP over DTLS over UDP
+   rather than native SCTP [RFC8841].
+
+   *Mitigation:* *Specified measure:* WebRTC data channels specify SCTP
+   over DTLS over UDP rather than native SCTP [RFC8841].
+
+4.2.2.  TCP Fast Open and TCP Option Intolerance
+
+   *Issue:* TCP Fast Open (TFO) cookies and data in SYN packets change
+   assumptions made by middlebox TCP state machines.  Operational
+   deployments observed post-handshake black holes and one-way data
+   drops.
+
+   *Communication manifestation:* *Field or option removal/rewrite*,
+   *negotiation failure*, and *silent fallback or feature degradation*.
+
+   *Report category:* *Measurement or operational observation.* The case
+   was observed in an Apple service deployment on iOS 9 and OS X 10.11.
+
+   *Reported observations and sources:* Paasch [Paasch] shows a
+   30-second post-handshake black hole caused by middleboxes at some
+   ISPs, and one-way data dropping.  [RFC9065] also notes middleboxes
+   that remove unknown TCP options, and [RFC7413] specifies fallback
+   behavior for TFO.
+
+   *Mitigation:* *Specified measure:* Treat TFO as opportunistic and
+   promptly retry with an ordinary TCP handshake.  *Observed deployment
+   action:* The Apple deployment used aggressive client timeouts to
+   blacklist a network for TFO and whitelisted a network after a
+   successful TFO connection.  It used TCP keepalive and receive
+   sequence state to detect one-way loss.
+
+4.2.3.  TCP Sequence Translation and SACK Inconsistency
+
+   *Issue:* A middlebox that inserts or removes TCP payload can
+   translate the fixed sequence and acknowledgment fields but fail to
+   translate SACK ranges.  Endpoints then receive invalid SACK
+   information and loss recovery can degrade.
+
+   *Communication manifestation:* *Field or option removal/rewrite* and
+   *semantic or state failure*.
+
+   *Report category:* *Documented implementation behavior.*
+
+   *Reported observations and sources:* [RFC9065] identifies middleboxes
+   that rewrite only the fixed TCP header and not SACK information as an
+   example of TCP ossification.
+
+4.2.4.  MPTCP and ECN
+
+   *Issue:* Paths that do not preserve MPTCP options such as MP_CAPABLE,
+   MP_JOIN, and DSS cause capability negotiation to fail and fall back
+   to regular TCP.  ECN-capable SYNs and ECE/CWR handling have similar
+   compatibility risks.
+
+   *Communication manifestation:* *Negotiation failure*, *field or
+   option removal/rewrite*, and *silent fallback or feature
+   degradation*.
+
+   *Report category:* *Mixed.* MPTCP includes *documented implementation
+   and operational behavior* in [RFC8041].  ECN-capable SYN fallback in
+   [RFC3168] is a *specification consideration or design constraint*.
+
+   *Reported observations and sources:* [RFC8684] specifies MPTCP
+   fallback for middlebox compatibility and [RFC8041] records
+   operational heuristics.  [RFC3168] specifies fallback for middleboxes
+   that drop ECN-capable SYNs.
+
+   *Mitigation:* *Specified measure:* For MPTCP, fall back to TCP
+   without MPTCP options when a middlebox prevents connection
+   establishment.  For ECN, retransmit the SYN without ECN negotiation
+   if an ECN-capable SYN receives no response.
+
+4.2.5.  UDP Options: Mismatch between UDP Length and IP Length
+
+   *Issue:* UDP Options use the surplus area after the user data
+   indicated by the UDP Length field and before the end of the IP
+   payload.  The UDP Length and IP payload length therefore
+   intentionally differ.  Some implementations and inspection devices
+   classify this difference as anomalous or an attack.
+
+   *Communication manifestation:* *Initial reachability failure* or *in-
+   flight dropping*.  An IDS alert alone does not necessarily cause
+   failure.
+
+   *Report category:* *Measurement or operational observation* and
+   *documented implementation behavior.*
+
+   *Reported observations and sources:* [RFC9868], Section 18, records
+   interoperability tests on Linux, macOS, Windows Cygwin, and NATs that
+   delivered only user data, but also reports embedded devices that
+   delivered the entire IP datagram to a UDP application.  It records
+   the default configuration of the Alcatel-Lucent "Brick" IDS, which
+   reported a UDP/IP length mismatch as an attack.
+
+   *Mitigation:* *Specified measure:* Initially use only SAFE Options so
+   that legacy receivers retain the meaning of UDP user data.
+
+4.2.6.  Unsafe UDP Options and Endpoint Ossification
+
+   *Issue:* UNSAFE Options for compression, encryption, fragmentation,
+   and similar functions can break semantics when a legacy receiver
+   ignores the option and processes user data.  UDP provides no standard
+   stateful negotiation, so a sender cannot know in advance that an
+   endpoint supports such an option.
+
+   *Communication manifestation:* *Negotiation failure*, *semantic or
+   state failure*, or *silent fallback or feature degradation*.
+
+   *Report category:* *Specification consideration or design
+   constraint.*
+
+   *Reported observations and sources:* [RFC9868] defines SAFE Options
+   as those that do not change user-data meaning if ignored.  It
+   deliberately defines incompatible behavior for UNSAFE Options, for
+   example by making user data empty and placing payload in a FRAG
+   Option.  The RFC also explains that endpoint support cannot be known
+   in advance.
+
+   *Mitigation:* *Specified measure:* Make a new option SAFE where
+   possible.  For UNSAFE Options, use capability exchange, fallback, and
+   reordering/loss handling at a higher layer, and do not permit in-
+   transit modification.
+
+4.3.  TLS
+
+4.3.1.  Version Intolerance
+
+   *Issue:* An old implementation can reject a ClientHello that
+   advertises an unknown newer TLS version rather than selecting a
+   supported lower version.
+
+   *Communication manifestation:* *Negotiation failure* and *initial
+   reachability failure*.
+
+   *Report category:* *Documented implementation behavior.*
+
+   *Reported observations and sources:* [RFC8446] records version
+   intolerance.  TLS 1.3 moves version preference to the
+   supported_versions extension and fixes legacy_version to the TLS 1.2
+   value, 0x0303.
+
+   *Mitigation:* *Specified measure:* Do not depend on putting a new
+   version directly in an old version field; use a compatible
+   negotiation extension.
+
+4.3.2.  ClientHello Extension Intolerance and TLS 1.3 Compatibility Mode
+
+   *Issue:* Endpoints and middleboxes can reject unknown TLS extensions,
+   cipher suites, lengths, or handshake ordering.  Some middleboxes
+   treated the TLS 1.3 wire image as anomalous relative to TLS 1.2.
+
+   *Communication manifestation:* *Negotiation failure* and *initial
+   reachability failure*; compatibility mode can instead produce *silent
+   fallback or feature degradation*.
+
+   *Report category:* *Measurement or operational observation.*
+
+   *Reported observations and sources:* [RFC8446], Appendix D.4, relies
+   on field measurements and specifies compatibility mode, including a
+   dummy ChangeCipherSpec.  Benjamin [Benjamin] reports a Chrome 63
+   rollout of TLS 1.3 draft 22 to 95% of stable users.  A Canon PIXMA
+   MX492 failed because BSAFE's private extended_random extension number
+   40 collided with TLS 1.3 key_share.  Cisco Firepower in "Decrypt -
+   Resign" mode improperly forwarded supported_versions, key_share, and
+   the client random, breaking TLS 1.3 servers.  [RFC8701] defines TLS
+   GREASE.  QUIC's use of TLS does not use the CCS compatibility mode
+   [RFC9001].
+
+   *Mitigation:* *Specified measure:* Clients should continuously use
+   GREASE.
+
+4.3.3.  Large PQC ClientHello Messages and TLS Inspection Intolerance
+
+   *Issue:* Hybrid post-quantum key exchange enlarges supported_groups
+   and key_share in ClientHello.  The ClientHello can span multiple TCP
+   segments.  TLS inspection middleboxes that cannot reassemble and
+   inspect it correctly can make the handshake fail.
+
+   *Communication manifestation:* *Negotiation failure* and user-visible
+   *initial reachability failure*; disabling PQC key exchange produces
+   *silent fallback or feature degradation*.
+
+   *Report category:* *Measurement or operational observation.* The
+   sources identify concrete failures and fixes.
+
+   *Reported observations and sources:* Chromium CECPQ2 [CECPQ2] records
+   that larger TLS messages caused failures or timeouts in non-
+   conformant middleware during a CECPQ2 rollout, including FortiGate
+   and possibly Palo Alto Networks devices.  CECPQ2 used X25519 and
+   NTRU-HRSS and is not the same algorithm as current ML-KEM deployment,
+   but is an operational precursor.  Fortinet's technical note
+   [FORTINET-MLKEM] documents ERR_SSL_PROTOCOL_ERROR and a fatal
+   illegal_parameter alert for ML-KEM ClientHello with Flow-based TLS
+   Deep Inspection, with IPS Engine updates as the long-term resolution.
+   Palo Alto Networks' technical note [PALOALTO-PQC] records SSL session
+   failure when ClientHello arrives in multiple packets over an
+   asymmetric path, with disabling the accumulation proxy or client PQC
+   as workarounds.
+
+   *Mitigation:* *Implemented measure:* Fortinet identifies an IPS
+   Engine update for Flow-based TLS Deep Inspection as the long-term
+   resolution [FORTINET-MLKEM].
+
+4.3.4.  Encrypted Client Hello and Middleboxes Assuming Plaintext SNI
+
+   *Issue:* ECH places the real SNI and related information in a
+   ClientHelloInner and sends a ClientHelloOuter containing an
+   encrypted_client_hello extension.  A middlebox that rejects unknown
+   TLS extensions, or an inspection/termination proxy that assumes
+   visible SNI, can fail the handshake.  Deliberately disabling ECH to
+   restore plaintext SNI can produce the same result, but is
+   *intentional policy blocking*, not ossification.
+
+   *Communication manifestation:* *Negotiation failure*, *initial
+   reachability failure*, or *silent fallback or feature degradation*.
+   A deliberate ECH block is *intentional policy blocking*.
+
+   *Report category:* *Specification consideration or design
+   constraint.* [RFC9849] describes an incompatible TLS-terminating
+   proxy as capable of retry or connection failure depending on the
+   client's trust configuration.
+
+   *Reported observations and sources:* [RFC9849], Section 6.2,
+   specifies GREASE encrypted_client_hello for clients without an
+   ECHConfig.  Section 10.10.4 explicitly presents broad GREASE ECH
+   deployment as a mitigation for network ossification.  Section 8.1.2
+   explains how a conforming proxy ignores unknown parameters and
+   connects to the public name, and how failure can result when the
+   proxy certificate is not authoritative for that name.
+
+   *Mitigation:* *Specified measure:* Clients should continue GREASE
+   ECH.
+
+4.4.  DNS
+
+4.4.1.  No Response or FORMERR to EDNS(0) OPT Records
+
+   *Issue:* An authoritative server, recursive resolver, or middlebox
+   can give no response, return FORMERR, or remove an EDNS(0) OPT
+   pseudo-RR.  A resolver may be unable to distinguish packet loss from
+   EDNS intolerance and falls back to plain DNS.
+
+   *Communication manifestation:* *Negotiation failure*, *in-flight
+   dropping* (query or response), and *silent fallback or feature
+   degradation*.
+
+   *Report category:* *Measurement or operational observation.*
+
+   *Reported observations and sources:* [RFC8906] records widespread
+   non-response to EDNS queries, fallback to plain DNS, and possible
+   DNSSEC validation failure.  [RFC9170] treats DNS extension
+   intolerance as a case requiring broad fallback.
+
+   *Mitigation:* *Specified measure:* Resolvers need EDNS fallback.
+
+   draft-ietf-dnsop-grease-03 [DNSOP-GREASE] proposes low-rate GREASE of
+   DNS extension points to expose intolerance to unknown values early.
+
+4.4.2.  Individual EDNS Option Intolerance and UDP Fragmentation
+
+   *Issue:* Implementations that return FORMERR for an unknown EDNS
+   option do not distinguish lack of that option from lack of EDNS as a
+   whole.  Large DNS UDP responses that require IP fragmentation can
+   time out when fragments are dropped, including for DNSSEC resolution.
+
+   *Communication manifestation:* *Negotiation failure*, *in-flight
+   dropping* (primarily one-way on the response path), and *silent
+   fallback or feature degradation*.
+
+   *Report category:* *Documented implementation and operational
+   behavior.*
+
+   *Reported observations and sources:* [RFC8906] describes incorrect
+   handling of unknown EDNS options.  [RFC8027] describes EDNS-size
+   fallback for DNSSEC reachability, and [RFC10001] discusses oversized
+   EDNS UDP payloads and fragmentation reachability.
+
+4.5.  HTTP
+
+4.5.1.  HTTP Fields and WAF Allowlists
+
+   *Issue:* HTTP header fields, methods, status codes, and cache
+   directives are extension points.  A WAF, proxy, or cache that permits
+   only known field names or values can block, remove, or misinterpret a
+   new field or a permitted new value.
+
+   *Communication manifestation:* *Field or option removal/rewrite*,
+   *semantic or state failure*, or one-way *in-flight dropping* of a
+   request or response.
+
+   *Report category:* *Specification consideration or design
+   constraint.*
+
+   *Reported observations and sources:* draft-nottingham-http-grease
+   [HTTP-GREASE] identifies HTTP methods, status codes, header/trailer
+   fields, cache directives, content codings, and range units as
+   potentially ossified extension points and proposes GREASE.
+
+4.6.  QUIC and HTTP/3
+
+4.6.1.  Blocking UDP/443
+
+   *Issue:* In enterprise networks, access networks, or firewalls that
+   block UDP/443, QUIC Initial packets cannot complete a round trip and
+   an HTTP/3 connection cannot start.
+
+   *Communication manifestation:* *Initial reachability failure*,
+   *failure of broad deployment*, and sometimes *intentional policy
+   blocking*.
+
+   *Report category:* *Measurement or operational observation.* The
+   available measurement is not limited to UDP/443.
+
+   *Reported observations and sources:* The UDP reachability
+   measurements in Edeline et al.  [Edeline] show that UDP is not
+   universally traversable.
+
+4.6.2.  Middlebox Ossification on Google QUIC Public Flags
+
+   Google QUIC (GQUIC) in this section is the pre-IETF QUIC deployed and
+   studied by Google from 2013 and in the 2017 paper cited below.  It
+   differs from IETF QUIC in wire format and cryptographic handshake.
+
+   *Issue:* In October 2016, Google changed one public flag bit in a
+   GQUIC packet header.  A firewall product used that flag to identify
+   and explicitly block GQUIC.  Before the change, all GQUIC packets
+   were blocked and the client could fall back to TCP.  After the
+   change, the classifier let the initial packet pass but blocked later
+   packets, creating a black hole after connection start and preventing
+   TCP fallback.
+
+   *Communication manifestation:* *In-flight dropping* after the first
+   packet, *semantic or state failure*, and *initial reachability
+   failure* when fallback does not activate.
+
+   *Report category:* *Measurement or operational observation.* Google
+   observed the failure during global deployment, rolled back the
+   change, and contacted the vendor.
+
+   *Reported observations and sources:* Section 7.5 of Langley et al.
+   [Langley] records the one-bit change, pathological loss of later
+   packets in a firewall, fallback failure, rollback, and a vendor
+   classifier update.  It also describes GQUIC's encryption of most
+   transport-header information to reduce middlebox modification and
+   ossification.
+
+   *Mitigation:* *Observed deployment action:* In this case, client
+   rollback and the vendor classifier update restored service.
+   *Implemented measure:* GQUIC encrypted transport information that did
+   not require middlebox interpretation.
+
+4.6.3.  IETF QUIC Versions and Visible Invariants
+
+   IETF QUIC in this section is the standardized protocol based on
+   [RFC9000].  It is different from the GQUIC described in the preceding
+   section.  The risk of middleboxes fixing on a visible wire image is
+   common to both.
+
+   *Issue:* A QUIC-aware middlebox can depend on its own interpretation
+   of the version-1 first packet, connection ID, fixed bit, or other
+   visible values and thereby interfere with version 2 or a future
+   version.
+
+   *Communication manifestation:* *Negotiation failure*, *initial
+   reachability failure*, or *failure of broad deployment*.
+
+   *Report category:* *Specification consideration or design
+   constraint.* QUIC v2 exercises version negotiation to resist
+   ossification.  Chaos Protection is an endpoint testing practice.
+
+   *Reported observations and sources:* [RFC9369] specifies QUIC v2 to
+   exercise version negotiation and counter an ossification vector,
+   including middlebox attention to the first packet.  [RFC9000] limits
+   version-independent properties.
+
+   *Mitigation:* *Specified measure:* QUIC v2 exercises version
+   negotiation to mitigate ossification around version-1 Initial packets
+   [RFC9369]. *Implemented measure:* Chrome's QUIC implementation uses
+   "Chaos Protection" that splits ClientHello across CRYPTO frames and
+   varies PING, PADDING, and frame order; the quiche implementation
+   [QUICHE-CHAOS] records this practice.
+
+4.7.  NTP
+
+4.7.1.  NTPv4 Extension Field Intolerance
+
+   *Issue:* NTPv4 can append Extension Fields after its fixed header.
+   Existing implementations that discard a packet with an unknown
+   Extension Field cannot interoperate with a peer sending a new field,
+   although a receiver that does not use the field would otherwise
+   ignore it and continue time synchronization.
+
+   *Communication manifestation:* *Negotiation failure* or one-way/two-
+   way *in-flight dropping* of requests and responses; retry without the
+   field can be *silent fallback or feature degradation*.
+
+   *Report category:* *Documented implementation behavior.*
+
+   *Reported observations and sources:* [RFC7822] says a host SHOULD
+   ignore an unknown Extension Field, subject to policy.  [RFC7821]
+   explicitly states that its UDP Checksum Complement Extension Field
+   cannot interoperate with legacy implementations that discard unknown
+   Extension Fields.
+
+4.7.2.  Why NTPv5 Negotiation Cannot Use Extension Fields
+
+   *Issue:* NTPv5 is not wire-compatible with NTPv4.  Some widely
+   deployed NTPv4 servers interpret a higher-version request as NTPv4
+   and copy its version number into the response, or do not respond to a
+   request containing an unknown Extension Field.  NTPv4 Extension
+   Fields therefore cannot be used for NTPv5 capability negotiation.
+
+   *Communication manifestation:* *Negotiation failure*, one-way *in-
+   flight dropping* of requests, and *failure of broad deployment*.
+
+   *Report category:* *Documented implementation behavior.* The source
+   records existing implementation behavior as a design input.
+
+   *Reported observations and sources:* draft-ietf-ntp-ntpv5-09,
+   Section 12 [NTPV5-DRAFT] records these behaviors.
+
+   *Mitigation:* *Specified measure:* NTPv5 places its negotiation
+   signal in an existing reference-timestamp field.
+
+5.  Security Considerations
+
+   This document introduces no new security considerations.  Security
+   considerations for each case are in the RFCs, Internet-Drafts, and
+   other sources cited in the text.
+
+6.  IANA Considerations
+
+   This document has no IANA actions.
+
+7.  References
+
+7.1.  Normative References
+
+   [RFC3168]  Ramakrishnan, K., Floyd, S., and D. Black, "The Addition
+              of Explicit Congestion Notification (ECN) to IP",
+              RFC 3168, DOI 10.17487/RFC3168, September 2001,
+              <https://www.rfc-editor.org/rfc/rfc3168>.
+
+   [RFC6891]  Damas, J., Graff, M., and P. Vixie, "Extension Mechanisms
+              for DNS (EDNS(0))", STD 75, RFC 6891,
+              DOI 10.17487/RFC6891, April 2013,
+              <https://www.rfc-editor.org/rfc/rfc6891>.
+
+   [RFC7045]  Carpenter, B. and S. Jiang, "Transmission and Processing
+              of IPv6 Extension Headers", RFC 7045,
+              DOI 10.17487/RFC7045, December 2013,
+              <https://www.rfc-editor.org/rfc/rfc7045>.
+
+   [RFC7413]  Cheng, Y., Chu, J., Radhakrishnan, S., and A. Jain, "TCP
+              Fast Open", RFC 7413, DOI 10.17487/RFC7413, December 2014,
+              <https://www.rfc-editor.org/rfc/rfc7413>.
+
+   [RFC7821]  Mizrahi, T., "UDP Checksum Complement in the Network Time
+              Protocol (NTP)", RFC 7821, DOI 10.17487/RFC7821, March
+              2016, <https://www.rfc-editor.org/rfc/rfc7821>.
+
+   [RFC7822]  Mizrahi, T. and D. Mayer, "Network Time Protocol Version 4
+              (NTPv4) Extension Fields", RFC 7822, DOI 10.17487/RFC7822,
+              March 2016, <https://www.rfc-editor.org/rfc/rfc7822>.
+
+   [RFC7872]  Gont, F., Linkova, J., Chown, T., and W. Liu,
+              "Observations on the Dropping of Packets with IPv6
+              Extension Headers in the Real World", RFC 7872,
+              DOI 10.17487/RFC7872, June 2016,
+              <https://www.rfc-editor.org/rfc/rfc7872>.
+
+   [RFC8027]  Hardaker, W., Gudmundsson, O., and S. Krishnaswamy,
+              "DNSSEC Roadblock Avoidance", BCP 207, RFC 8027,
+              DOI 10.17487/RFC8027, November 2016,
+              <https://www.rfc-editor.org/rfc/rfc8027>.
+
+   [RFC8041]  Bonaventure, O., Paasch, C., and G. Detal, "Use Cases and
+              Operational Experience with Multipath TCP", RFC 8041,
+              DOI 10.17487/RFC8041, January 2017,
+              <https://www.rfc-editor.org/rfc/rfc8041>.
+
+   [RFC8446]  Rescorla, E., "The Transport Layer Security (TLS) Protocol
+              Version 1.3", RFC 8446, DOI 10.17487/RFC8446, August 2018,
+              <https://www.rfc-editor.org/rfc/rfc8446>.
+
+   [RFC8684]  Ford, A., Raiciu, C., Handley, M., Bonaventure, O., and C.
+              Paasch, "TCP Extensions for Multipath Operation with
+              Multiple Addresses", RFC 8684, DOI 10.17487/RFC8684, March
+              2020, <https://www.rfc-editor.org/rfc/rfc8684>.
+
+   [RFC8701]  Benjamin, D., "Applying Generate Random Extensions And
+              Sustain Extensibility (GREASE) to TLS Extensibility",
+              RFC 8701, DOI 10.17487/RFC8701, January 2020,
+              <https://www.rfc-editor.org/rfc/rfc8701>.
+
+   [RFC8841]  Holmberg, C., Shpount, R., Loreto, S., and G. Camarillo,
+              "Session Description Protocol (SDP) Offer/Answer
+              Procedures for Stream Control Transmission Protocol (SCTP)
+              over Datagram Transport Layer Security (DTLS) Transport",
+              RFC 8841, DOI 10.17487/RFC8841, January 2021,
+              <https://www.rfc-editor.org/rfc/rfc8841>.
+
+   [RFC8906]  Andrews, M. and R. Bellis, "A Common Operational Problem
+              in DNS Servers: Failure to Communicate", BCP 231,
+              RFC 8906, DOI 10.17487/RFC8906, September 2020,
+              <https://www.rfc-editor.org/rfc/rfc8906>.
+
+   [RFC9000]  Iyengar, J., Ed. and M. Thomson, Ed., "QUIC: A UDP-Based
+              Multiplexed and Secure Transport", RFC 9000,
+              DOI 10.17487/RFC9000, May 2021,
+              <https://www.rfc-editor.org/rfc/rfc9000>.
+
+   [RFC9001]  Thomson, M., Ed. and S. Turner, Ed., "Using TLS to Secure
+              QUIC", RFC 9001, DOI 10.17487/RFC9001, May 2021,
+              <https://www.rfc-editor.org/rfc/rfc9001>.
+
+   [RFC9065]  Fairhurst, G. and C. Perkins, "Considerations around
+              Transport Header Confidentiality, Network Operations, and
+              the Evolution of Internet Transport Protocols", RFC 9065,
+              DOI 10.17487/RFC9065, July 2021,
+              <https://www.rfc-editor.org/rfc/rfc9065>.
+
+   [RFC9098]  Gont, F., Hilliard, N., Doering, G., Kumari, W., Huston,
+              G., and W. Liu, "Operational Implications of IPv6 Packets
+              with Extension Headers", RFC 9098, DOI 10.17487/RFC9098,
+              September 2021, <https://www.rfc-editor.org/rfc/rfc9098>.
+
+   [RFC9170]  Thomson, M. and T. Pauly, "Long-Term Viability of Protocol
+              Extension Mechanisms", RFC 9170, DOI 10.17487/RFC9170,
+              December 2021, <https://www.rfc-editor.org/rfc/rfc9170>.
+
+   [RFC9288]  Gont, F. and W. Liu, "Recommendations on the Filtering of
+              IPv6 Packets Containing IPv6 Extension Headers at Transit
+              Routers", RFC 9288, DOI 10.17487/RFC9288, August 2022,
+              <https://www.rfc-editor.org/rfc/rfc9288>.
+
+   [RFC9369]  Duke, M., "QUIC Version 2", RFC 9369,
+              DOI 10.17487/RFC9369, May 2023,
+              <https://www.rfc-editor.org/rfc/rfc9369>.
+
+   [RFC9769]  Lichvar, M. and A. Malhotra, "NTP Interleaved Modes",
+              RFC 9769, DOI 10.17487/RFC9769, May 2025,
+              <https://www.rfc-editor.org/rfc/rfc9769>.
+
+   [RFC9849]  Rescorla, E., Oku, K., Sullivan, N., and C. A. Wood, "TLS
+              Encrypted Client Hello", RFC 9849, DOI 10.17487/RFC9849,
+              March 2026, <https://www.rfc-editor.org/rfc/rfc9849>.
+
+   [RFC9868]  Touch, J. and C. Heard, Ed., "Transport Options for UDP",
+              RFC 9868, DOI 10.17487/RFC9868, October 2025,
+              <https://www.rfc-editor.org/rfc/rfc9868>.
+
+   [RFC10001] Momoka and T. Fiebig, "Operational Guidelines for DNS
+              Transport in Mixed IPv4/IPv6 Environments", BCP 91,
+              RFC 10001, DOI 10.17487/RFC10001, August 2026,
+              <https://www.rfc-editor.org/rfc/rfc10001>.
+
+7.2.  Informative References
+
+   [Benjamin] Benjamin, D., "Additional TLS 1.3 results from Chrome",
+              TLS Working Group mailing list, December 2017,
+              <https://mailarchive.ietf.org/arch/msg/tls/
+              i9blmvG2BEPf1s1OJkenHknRw9c/>.
+
+   [CECPQ2]   Chromium, "CECPQ2", n.d.,
+              <https://www.chromium.org/cecpq2/>.
+
+   [DNSOP-GREASE]
+              Huque, S. and M. P. Andrews, "Greasing Protocol Extension
+              Points in the DNS", Internet-Draft, draft-ietf-dnsop-
+              grease-03, n.d., <https://datatracker.ietf.org/doc/html/
+              draft-ietf-dnsop-grease-03>.
+
+   [Edeline]  Edeline, K., Kühlewind, M., Trammell, B., Aben, E., and B.
+              Donnet, "Using UDP for Internet Transport Evolution",
+              arXiv:1612.07816, 2016,
+              <https://arxiv.org/abs/1612.07816>.
+
+   [FORTINET-MLKEM]
+              Fortinet, "Technical Tip: ERR_SSL_PROTOCOL_ERROR when
+              using Flow-based Deep Inspection due to ML-KEM post-
+              quantum TLS key exchange (Known Issue)", n.d.,
+              <https://community.fortinet.com/fortigate-3/technical-tip-
+              err-ssl-protocol-error-when-using-flow-based-deep-
+              inspection-due-to-ml-kem-post-quantum-tls-key-exchange-
+              known-issue-189132>.
+
+   [HTTP-GREASE]
+              Nottingham, M., "Greasing HTTP", Internet-Draft, draft-
+              nottingham-http-grease, n.d.,
+              <https://datatracker.ietf.org/doc/draft-nottingham-http-
+              grease/>.
+
+   [Langley]  "The QUIC Transport Protocol: Design and Internet-Scale
+              Deployment", SIGCOMM 2017, n.d.,
+              <https://doi.org/10.1145/3098822.3098842>.
+
+   [NTPV5-DRAFT]
+              Lichvar, M. and T. Mizrahi, "Network Time Protocol Version
+              5", Internet-Draft, draft-ietf-ntp-ntpv5-09, Section 12,
+              n.d., <https://datatracker.ietf.org/doc/html/draft-ietf-
+              ntp-ntpv5#section-12>.
+
+   [Paasch]   Paasch, C., "Deploying TCP Fast Open in the wild", IETF 94
+              TCPM presentation, n.d.,
+              <https://www.ietf.org/proceedings/94/slides/slides-94-
+              tcpm-13.pdf>.
+
+   [PALOALTO-PQC]
+              Palo Alto Networks, "Palo Alto Networks technical note on
+              fragmented ClientHello inspection", n.d.,
+              <https://knowledgebase.paloaltonetworks.com/
+              KCSArticleDetail?id=kA14u000000TperCAC&lang=ja>.
+
+   [QUICHE-CHAOS]
+              Chromium, "QUIC Chaos Protector implementation", n.d.,
+              <https://quiche.googlesource.com/quiche/+/refs/heads/main/quiche/
+              quic/core/quic_chaos_protector.cc>.
+
+Acknowledgments
+
+   The author thanks the authors and editors of the IETF specifications,
+   operational documents, and measurement studies cited in this
+   document.
+
+References
+
+Author's Address
+
+   Yuki Goto
+   independent
+   Email: minami.hiroy@gmail.com
+
+   Additional contact information:
+
+      後藤ゆき
+      independent
