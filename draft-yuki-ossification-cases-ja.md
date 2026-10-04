@@ -1,8 +1,8 @@
 ---
 title: "インターネットにおけるプロトコル硬直化とその緩和策の事例"
-abbrev: "プロトコル硬直化事例集"
+abbrev: "Ossification Cases"
 category: info
-docname: draft-yuki-ossification-cases
+docname: draft-yuki-ossification-cases-ja-latest
 submissiontype: independent
 consensus: false
 v: 3
@@ -12,7 +12,7 @@ keyword:
   - protocol ossification
   - middlebox
   - protocol evolution
-date: 2026-09-28
+date: 2026-10-04
 author:
   - fullname:
       :: 後藤ゆき
@@ -21,7 +21,6 @@ author:
     email: minami.hiroy@gmail.com
 normative:
   RFC3168:
-  RFC6891:
   RFC7045:
   RFC7413:
   RFC7821:
@@ -39,9 +38,7 @@ normative:
   RFC9065:
   RFC9098:
   RFC9170:
-  RFC9288:
   RFC9369:
-  RFC9769:
   RFC9849:
   RFC9868:
   RFC10001:
@@ -137,6 +134,7 @@ informative:
 プロトコル硬直化は、TCP、TLS 1.3、QUIC など、さまざまなプロトコルで観測されている。本書では、こうした事例とその対策をまとめる。対策では、仕様上の対応、実装上の対応、および出典が記録する実運用上の対応を区別する。
 
 # 用語
+{: #terminology}
 
 Endpoint:
 : 通信を開始または終端するホスト、アプリケーション、またはサービス。
@@ -154,6 +152,7 @@ GREASE:
 : 予約済みで意味を持たない値を平常時から送信して、unknown value を無視できない実装を露出させ、拡張性を維持する手法。
 
 # 通信に現れる失敗の分類
+{: #failure-classifications}
 
 プロトコル硬直化による通信の阻害は、さまざまな形で現れる。本書では各事例に、**通信上の発現類型**を付与する。
 
@@ -182,6 +181,7 @@ silent fallback・機能縮退:
 : security policy 等により、運用者が明示的に packet または機能を許可しない状態。
 
 # 事例: 発見された課題、報告された事象、および対策
+{: #cases}
 
 各事例では、報告された ossification の事象とその出典を示す。
 
@@ -422,6 +422,7 @@ draft-ietf-dnsop-grease-03 {{DNSOP-GREASE}} は、DNS の拡張点を低頻度�
 **対策:** **仕様上の対応:** NTPv5 は既存の reference timestamp field に negotiation signal を置く。
 
 # セキュリティに関する考慮事項
+{: #security-considerations}
 
 本書は新たなセキュリティ上の考慮事項を規定しない。各事例に関するセキュリティ上の考慮事項は、本文で参照する RFC、Internet-Draft、およびその他の出典を参照されたい。
 
@@ -432,9 +433,11 @@ draft-ietf-dnsop-grease-03 {{DNSOP-GREASE}} は、DNS の拡張点を低頻度�
 --- back
 
 # 謝辞
+{: #acknowledgments}
 {:unnumbered}
 
 本書で引用した IETF の仕様、運用文書、および測定研究の著者・編集者に謝意を表する。
 
 # 参考文献
+{: #references}
 {:unnumbered}
