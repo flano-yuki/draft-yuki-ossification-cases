@@ -6,8 +6,8 @@ docname: draft-yuki-ossification-cases-latest
 submissiontype: independent
 consensus: false
 v: 3
-area: Internet
-workgroup: ""
+# area: Internet
+# workgroup: ""
 keyword:
   - protocol ossification
   - middlebox
